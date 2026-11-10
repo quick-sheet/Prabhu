@@ -405,6 +405,27 @@
     return url && AUDIO_HOSTS.test(url) ? url : audioFor(id);
   }
 
+  // Where a recording may be, best first. The VedaBase names its files after the same id
+  // (721110SB.VRN.mp3); for 1966-1971 it often uses the place instead (690208BG-LOS_ANGELES.mp3).
+  // The old library the transcripts point to comes last, in case it returns.
+  function audioSources(it, own) {
+    const id = it.id, y = yearOf(id);
+    const VB = `https://vedabase.io/media/audio/transcripts/${y}/`;
+    const coded = `${VB}${id.toUpperCase()}.mp3`;
+    const named = [];
+    const m = /^(\d{6}(?:-\d+)?)([a-z]+\d*)\./i.exec(id);
+    if (m && it.place) {
+      const pl = it.place.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      if (pl) {
+        named.push(`${VB}${m[1]}${m[2].toUpperCase()}-${pl}.mp3`);
+        if (/^NEW_/.test(pl)) named.push(`${VB}${m[1]}${m[2].toUpperCase()}-${pl.slice(4)}.mp3`);
+      }
+    }
+    const old = cleanAudio(own, id);
+    const list = (y <= 1971 ? named.concat(coded) : [coded].concat(named)).concat(old, old.replace('.nyc3.cdn.', '.nyc3.'));
+    return list.filter((u, i) => list.indexOf(u) === i);
+  }
+
   const mmss = (s) => {
     s = Math.max(0, Math.floor(s || 0));
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -412,7 +433,7 @@
   };
 
   const api = {
-    SRC, urls, pageUrl, kindOf, audioFor, cleanAudio, AUDIO_HOSTS,
+    SRC, urls, pageUrl, kindOf, audioFor, cleanAudio, audioSources, AUDIO_HOSTS,
     pad, ymd, mmdd, dayNumber, yearOf, dateOf, longDate, MONTHS, hash, rng,
     spokenInfo, letterInfo, dayItems, featuredOrder, bestOfYear, weight,
     decodeBooks, verseOfDay, randomVerse, bookRef, verse, purportStart,

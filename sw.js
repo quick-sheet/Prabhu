@@ -1,5 +1,5 @@
 // Vani service worker: works offline and picks up new releases straight away.
-const CACHE = 'vani-v1';   // bump on every release, together with core.js?v= in index.html
+const CACHE = 'vani-v2';   // bump on every release, together with core.js?v= in index.html
 const SHELL = ['./', 'index.html', 'core.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'index.json', 'books.json'];
 
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE)
@@ -24,7 +24,8 @@ self.addEventListener('fetch', (e) => {
         if (r.ok) c.put(req, r.clone());
         return r;
       } catch {
-        return (await c.match(req, { ignoreSearch: true })) || (req.mode === 'navigate' ? c.match('index.html') : Response.error());
+        // the exact release first; a copy without the marker only if that's all there is
+        return (await c.match(req)) || (await c.match(req, { ignoreSearch: true })) || (req.mode === 'navigate' ? c.match('index.html') : Response.error());
       }
     })());
     return;

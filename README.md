@@ -13,7 +13,7 @@ Vani's repository holds code only. The words are read live, on the phone, from t
 - Books (original pre-1978 editions): https://github.com/vaniwiki/prabhupada-books
 - Lectures, walks and conversations: https://github.com/iskconpress/spoken
 - Letters: https://github.com/vaniwiki/prabhupada-letters
-- Recordings: the archive's audio library
+- Recordings: played from vedabase.io (the Bhaktivedanta VedaBase), under the same ids; the archive's older audio address is tried last
 
 `index.json` and `books.json` list only names, dates, places and lengths, so the app knows what exists on each date. `build-index.py` rebuilds them from fresh clones of the archive.
 

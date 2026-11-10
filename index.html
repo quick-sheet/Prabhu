@@ -95,6 +95,7 @@ section.panel { min-height: 100svh; display: flex; flex-direction: column; justi
 .passage { position: relative; margin: 26px 0 0; font: 500 calc(25px * var(--rs))/1.42 var(--serif); color: var(--ink); max-width: 30em; text-wrap: pretty; }
 .passage::before { content: "“"; position: absolute; left: -.42em; top: -.08em; font-size: 1.5em; line-height: 1; color: var(--sun); opacity: .8; }
 .passage .s { display: inline; animation: rise-in 1.1s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i) * .32s + .1s); }
+.passage.still .s { animation: none; }
 .passage i, .reading i { font-style: italic; }
 @keyframes rise-in { from { opacity: 0; filter: blur(5px); } to { opacity: 1; filter: blur(0); } }
 .source { margin: 16px 0 0; font: 500 calc(17px * var(--rs))/1.4 var(--serif); color: var(--ink-2); }
@@ -386,12 +387,12 @@ dialog.sheet::backdrop { background: rgba(3, 4, 10, .6); }
   <div class="w-in" id="wIn"></div>
 </div>
 
-<script src="core.js?v=1"></script>
+<script src="core.js?v=2"></script>
 <script>
 (() => {
 'use strict';
 const V = window.Vani;
-const REL = 1;
+const REL = 2;
 const CODE_HASH = 'ec6a77880098871a7772fa0975e809908e02a7fd0b8117986098c7dab7a4827f';   // sha-256 of "vani:" + the shared code
 const TEXT_CACHE = 'vani-texts';
 
@@ -595,12 +596,13 @@ function renderToday() {
       <div class="ghost-lines" aria-label="Finding today's words" role="status"><span></span><span></span><span></span></div>`;
   } else if (st === 'ready') {
     const it = f.it, k = keyFor(it.id, f.ex.block), kept = isKept(k);
+    const fresh = S.shownKey !== k; S.shownKey = k;   // the words fade in once, not on every redraw
     const hear = it.kind === 'spoken' && it.audio
       ? `<button class="hear" type="button" data-act="hear"><span class="round">${S.player.item && S.player.item.id === it.id && !voice.paused ? ICON.pause : ICON.play}</span>
           <span class="lbl">Hear him</span></button>` : '';
     body = `<p class="lead">${esc(leadFor(it))}</p>
       <h1 class="place">${esc(bigWord(it))}</h1>
-      <blockquote class="passage" id="passage" lang="en">${passageHtml(f.ex.raw)}</blockquote>
+      <blockquote class="passage${fresh ? '' : ' still'}" id="passage" lang="en">${passageHtml(f.ex.raw)}</blockquote>
       <p class="source">${sourceLine(it)}</p>
       ${S.offlineNote ? `<p class="note">${esc(S.offlineNote)}</p>` : ''}
       <div class="acts">${hear}<button class="text-btn" type="button" data-act="read-feat">Read in full</button><span class="spacer"></span>
@@ -826,7 +828,7 @@ function openSettings() {
     <h3>Colour theme</h3>${themeGridHtml()}
     ${install}
     <h3>Where the words come from</h3>
-    <p class="serif-p">Vani reads Śrīla Prabhupāda’s original books, his lecture and conversation transcripts and his letters live from the vani.wiki archive, and plays his recordings from the archive’s audio library. Nothing is sent anywhere. What you keep stays on this phone.</p>
+    <p class="serif-p">Vani reads Śrīla Prabhupāda’s original books, his lecture and conversation transcripts and his letters live from the vani.wiki archive, and plays his recordings from the Bhaktivedanta VedaBase (vedabase.io). Nothing is sent anywhere. What you keep stays on this phone.</p>
     <p class="small" style="margin-top:10px"><a href="https://github.com/vaniwiki/prabhupada-books" target="_blank" rel="noopener">Books</a> · <a href="https://github.com/iskconpress/spoken" target="_blank" rel="noopener">Lectures</a> · <a href="https://github.com/vaniwiki/prabhupada-letters" target="_blank" rel="noopener">Letters</a></p>
     <p class="small">His words © The Bhaktivedanta Book Trust.</p>
     <div class="acts" style="margin-top:14px"><button class="btn" type="button" data-act="welcome-again">Show the welcome again</button></div>
@@ -914,20 +916,13 @@ async function hear(it, doc, ex, jump) {
     return;
   }
   p.item = it; p.doc = doc; p.ex = ex; p.wantJump = !!jump;
-  voice.src = V.cleanAudio(doc && doc.meta.audio, it.id);
-  voice.playbackRate = S.set.speed || 1;
+  p.sources = V.audioSources(it, doc && doc.meta.audio); p.si = 0;
   $('#dockT1').textContent = it.title;
   $('#dockT2').textContent = `${it.place ? it.place + ', ' : ''}${it.year}`;
   $('#speedBtn').textContent = `${S.set.speed || 1}×`;
   $('#nearBtn').hidden = !ex;
   $('#dock').hidden = false;
-  $('#ppBtn').classList.add('busy');
-  const saved = get('pos', {})[it.id];
-  voice.addEventListener('loadedmetadata', () => {
-    if (p.wantJump && p.ex) voice.currentTime = V.jumpTime(p.doc, p.ex, voice.duration);
-    else if (saved && saved < voice.duration - 20) voice.currentTime = saved;
-  }, { once: true });
-  try { await voice.play(); } catch (e) { playFailed(e); }
+  loadSource();
   try {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({ title: it.title, artist: 'Śrīla Prabhupāda', album: `${it.place ? it.place + ', ' : ''}${V.longDate(it.id)}`,
@@ -939,16 +934,39 @@ async function hear(it, doc, ex, jump) {
     }
   } catch {}
 }
+// Try one place for the recording; if it fails, the error event moves on to the next
+function loadSource() {
+  const p = S.player, id = p.item.id;
+  voice.src = p.sources[p.si];
+  voice.playbackRate = S.set.speed || 1;
+  $('#ppBtn').classList.add('busy');
+  const saved = get('pos', {})[id];
+  voice.addEventListener('loadedmetadata', () => {
+    if (!p.item || p.item.id !== id) return;
+    if (p.wantJump && p.ex && p.doc) voice.currentTime = V.jumpTime(p.doc, p.ex, voice.duration);
+    else if (saved && saved < voice.duration - 20) voice.currentTime = saved;
+  }, { once: true });
+  voice.play().catch(playFailed);
+}
 function playFailed(e) {
-  if (e && e.name === 'AbortError') return;
+  // a source that fails is handled by the error event, which tries the next one
+  if (e && (e.name === 'AbortError' || e.name === 'NotSupportedError')) return;
   $('#ppBtn').classList.remove('busy');
+  if (e && e.name === 'NotAllowedError') { setPP(false); return; }
   toast('The recording couldn’t be played. Check your connection.');
+}
+function sourceFailed() {
+  const p = S.player;
+  if (!p.item || !voice.getAttribute('src')) return;
+  if (p.sources && p.si < p.sources.length - 1) { p.si++; loadSource(); return; }
+  $('#ppBtn').classList.remove('busy'); setPP(false);
+  toast('This recording can’t be reached just now. The words are still here to read.');
 }
 voice.addEventListener('playing', () => { $('#ppBtn').classList.remove('busy'); setPP(true); Drone.duck(true); });
 voice.addEventListener('waiting', () => $('#ppBtn').classList.add('busy'));
 voice.addEventListener('pause', () => { setPP(false); Drone.duck(false); savePos(); });
 voice.addEventListener('ended', () => { setPP(false); Drone.duck(false); });
-voice.addEventListener('error', () => { if (voice.src) playFailed(); });
+voice.addEventListener('error', sourceFailed);
 let lastSave = 0;
 voice.addEventListener('timeupdate', () => {
   const d = voice.duration || 0, t = voice.currentTime || 0;
@@ -968,7 +986,6 @@ function stopVoice() {
   savePos();
   voice.pause(); voice.removeAttribute('src'); voice.load();
   S.player.item = null; $('#dock').hidden = true; setPP(false); Drone.duck(false);
-  renderToday();
 }
 $('#seek').addEventListener('input', (e) => { e.target.dragging = true; e.target.style.setProperty('--p', e.target.value / 10 + '%'); });
 $('#seek').addEventListener('change', (e) => { e.target.dragging = false; if (voice.duration) voice.currentTime = (e.target.value / 1000) * voice.duration; });
